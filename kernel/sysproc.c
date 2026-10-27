@@ -91,3 +91,70 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+uint64 
+sys_hello(void)
+{
+  int n;
+  argint(0, &n);
+  print_hello(n);
+  return 0;
+}
+
+int
+sys_sysinfo(void)
+{
+  int n;
+  argint(0, &n);
+  if (n == 0) {
+    return active_processes();
+  } else if (n == 1) {
+    return num_syscalls();
+  } else if (n == 2) {
+    return free_pages();
+  } else {
+    return -1;
+  }
+}
+
+int
+sys_procinfo(void)
+{
+  uint64 info_addr;
+  struct proc * p = myproc();
+  if (p == 0) {
+    return -1;
+  }
+  argaddr(0, &info_addr);
+
+  struct pinfo * info = (struct pinfo *) info_addr;
+
+  int pages = ((p->sz)+PGSIZE-1)/PGSIZE;
+  int ppid = p->parent->pid;
+
+  if (copyout(p->pagetable, (uint64) &info->ppid, (char *) &ppid, sizeof(int)) < 0 || copyout(p->pagetable, (uint64) &info->syscall_count, (char *) &p->syscall_count, sizeof(int)) < 0 || copyout(p->pagetable, (uint64) &info->page_usage, (char *) &pages, sizeof(int)) < 0){
+    return -1;
+  }
+  
+  return 0;
+
+
+}
+
+int 
+sys_sched_statistics(void)
+{
+  print_sched_stats();
+  return 0;
+}
+
+int 
+sys_sched_tickets(void)
+{
+  int n;
+  argint(0, &n);
+  struct proc * p = myproc();
+  set_tickets(n,p);
+  return 0;
+}
+

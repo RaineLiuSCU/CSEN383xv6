@@ -63,7 +63,7 @@ void            ramdiskrw(struct buf*);
 void*           kalloc(void);
 void            kfree(void *);
 void            kinit(void);
-
+int             free_pages(void);
 // log.c
 void            initlog(int, struct superblock*);
 void            log_write(struct buf*);
@@ -106,7 +106,11 @@ void            yield(void);
 int             either_copyout(int user_dst, uint64 dst, void *src, uint64 len);
 int             either_copyin(void *dst, int user_src, uint64 src, uint64 len);
 void            procdump(void);
-
+void            print_hello(int);
+int             active_processes(void);
+int             print_sched_stats(void);
+int             set_tickets(int, struct proc *);
+unsigned short  rand();
 // swtch.S
 void            swtch(struct context*, struct context*);
 
@@ -140,6 +144,7 @@ void            argaddr(int, uint64 *);
 int             fetchstr(uint64, char*, int);
 int             fetchaddr(uint64, uint64*);
 void            syscall();
+int             num_syscalls(void);
 
 // trap.c
 extern uint     ticks;

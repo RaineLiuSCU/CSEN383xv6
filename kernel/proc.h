@@ -104,4 +104,19 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  int syscall_count;
+  unsigned short tickets; 
+  int ticks;
+  int stride;
+  int pass;
 };
+
+struct pinfo {
+  int ppid;
+  int syscall_count;
+  int page_usage;
+};
+
+#define STARTING_TICKETS 10000
+#define MAX_TICKETS 10000
+#define K_CONST 10000

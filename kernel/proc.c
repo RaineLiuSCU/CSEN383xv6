@@ -5,6 +5,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "limits.h"
 
 struct cpu cpus[NCPU];
 
@@ -14,6 +15,7 @@ struct proc *initproc;
 
 int nextpid = 1;
 struct spinlock pid_lock;
+
 
 extern void forkret(void);
 static void freeproc(struct proc *p);
@@ -145,6 +147,11 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
+  p->syscall_count = 0;
+  p->tickets = STARTING_TICKETS;
+  p->ticks = 0;
+  p->pass = 0;
+  p->stride = K_CONST/p->tickets;
 
   return p;
 }
@@ -169,6 +176,10 @@ freeproc(struct proc *p)
   p->killed = 0;
   p->xstate = 0;
   p->state = UNUSED;
+  p->ticks = 0;
+  p->stride = 0;
+  p->pass = 0;
+  p->tickets = 0;
 }
 
 // Create a user page table for a given process, with no user memory,
@@ -455,6 +466,73 @@ scheduler(void)
     intr_on();
 
     int found = 0;
+    #ifdef LOTTERY
+    //printf("Lottery enabled\n");
+    int active_tickets = 0;
+    for(p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if(p->state == RUNNABLE) {
+        active_tickets += p->tickets;
+      }
+      release(&p->lock);
+    }
+    int random_ticket = rand() % active_tickets;
+    int ticket_counter = 0;
+    for(p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if (p->state == RUNNABLE) {
+        if (ticket_counter <= random_ticket && random_ticket < ticket_counter + p->tickets) {
+          p->state = RUNNING;
+          c->proc = p;
+          p->ticks++;
+          // if(p->pid != 1 && p->pid != 2 && p->pid != 3) {
+          //   printf("Running process name: %s, pid: %d\n", p->name, p->pid);
+          // }
+
+          swtch(&c->context, &p->context);
+          c->proc = 0;
+          found = 1;
+          release(&p->lock);
+          break;
+
+        } 
+        ticket_counter += p->tickets;
+      } 
+      release(&p->lock);
+    }
+    // if (found == 0) {
+    //   printf("Did not find process to run; random ticket number %d\n", random_ticket);
+    // }
+
+    #elif defined(STRIDE)
+    //printf("stride enabled \n");
+    int min_pass = INT_MAX;
+    struct proc * min_proc = NULL;
+    for(p = proc; p < &proc[NPROC]; p++) {
+      acquire(&p->lock);
+      if(p->state == RUNNABLE) {
+        if (min_pass > p->pass) {
+          min_pass = p->pass;
+          min_proc = p;
+        }
+      }
+      release(&p->lock);
+    }
+    if (min_proc) {
+      acquire(&min_proc->lock);
+      min_proc->state = RUNNING;
+      c->proc = min_proc;
+      min_proc->ticks++;
+      min_proc->pass += min_proc->stride;
+      swtch(&c->context, &min_proc->context);
+
+
+      c->proc = 0;
+      found = 1;
+      release(&min_proc->lock);
+    }
+    #else
+    //printf("rr enabled\n");
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
       if(p->state == RUNNABLE) {
@@ -467,11 +545,13 @@ scheduler(void)
 
         // Process is done running for now.
         // It should have changed its p->state before coming back.
+        p->ticks++;
         c->proc = 0;
         found = 1;
       }
       release(&p->lock);
     }
+    #endif
     if(found == 0) {
       // nothing to run; stop running on this core until an interrupt.
       intr_on();
@@ -692,4 +772,54 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+void 
+print_hello(int n)
+{
+  printf("Hello from the kernel space %d\n", n);
+}
+
+int 
+active_processes(void)
+{
+  struct proc *p;
+  int active = 0;
+  for(p = proc; p < &proc[NPROC]; p++){
+    if(p->state == SLEEPING || p->state == RUNNABLE || p->state == RUNNING || p->state == ZOMBIE) {
+      active++;
+    }
+  }
+  return active;
+}
+
+int 
+print_sched_stats(void)
+{
+  struct proc *p;
+  for(p = proc; p < &proc[NPROC]; p++){
+    if(p->state == SLEEPING || p->state == RUNNABLE || p->state == RUNNING) {
+      printf("%d(%s): tickets: %d, ticks: %d\n", p->pid, p->name, p->tickets, p->ticks);
+    }
+  }
+  return 0;
+}
+
+int 
+set_tickets(int n, struct proc * p)
+{
+  if (n  <= MAX_TICKETS) {
+
+    p->tickets = n;
+    p->stride = K_CONST/n;
+  }
+  return 0;
+}
+
+unsigned short lfsr = 0xACE1u;
+unsigned short bit;
+unsigned short rand()
+{
+  bit = ((lfsr >> 0) ^ (lfsr >> 2) ^ (lfsr >> 3) ^ (lfsr >> 5)) & 1;
+  return lfsr = (lfsr >> 1) | (bit << 15);
 }
